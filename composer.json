@@ -2,7 +2,7 @@
     "name": "zerofront/module-zero-adyen",
     "description": "Zero for Magento Open Source: payment on Adyen's hosted page for Zero Checkout: cards, wallets and every local method switched on in the Adyen account; HMAC-signed webhooks.",
     "type": "magento2-module",
-    "version": "1.3.3",
+    "version": "1.3.4",
     "license": [
         "OSL-3.0",
         "AFL-3.0"
@@ -30,6 +30,7 @@
         "magento/module-quote": "*",
         "magento/module-sales": "*",
         "magento/module-store": "*",
+        "zerofront/module-zero-core": "^1.3",
         "zerofront/module-zero-checkout": "^1.3"
     },
     "replace": {

@@ -11,9 +11,9 @@ namespace Zero\Adyen\Model;
 use Magento\Framework\App\Config\ScopeConfigInterface;
 use Magento\Framework\Encryption\EncryptorInterface;
 use Magento\Framework\Exception\LocalizedException;
-use Magento\Framework\HTTP\Client\CurlFactory;
 use Magento\Store\Model\ScopeInterface;
 use Psr\Log\LoggerInterface;
+use Zero\Core\Model\Http\JsonClient;
 
 /**
  * Adyen's Checkout API v71 (payment links, refunds): the API key in
@@ -30,7 +30,7 @@ class Api
         'BHD' => 3, 'JOD' => 3, 'KWD' => 3, 'OMR' => 3, 'TND' => 3];
 
     public function __construct(
-        private readonly CurlFactory $curlFactory,
+        private readonly JsonClient $client,
         private readonly ScopeConfigInterface $scopeConfig,
         private readonly EncryptorInterface $encryptor,
         private readonly LoggerInterface $logger,
@@ -48,27 +48,18 @@ class Api
             throw new LocalizedException(__('Adyen is not set up: the API key or merchant account is missing.'));
         }
         try {
-            $curl = $this->curlFactory->create();
-            $curl->setTimeout($this->timeout);
-            $curl->addHeader('X-API-Key', $key);
-            $curl->addHeader('Accept', 'application/json');
-            $url = $this->base($storeId) . $path;
-            if ($method === 'GET') {
-                $curl->get($url);
-            } else {
-                $curl->addHeader('Content-Type', 'application/json');
-                if ($method !== 'POST') {
-                    $curl->setOption(CURLOPT_CUSTOMREQUEST, $method);
-                }
-                $curl->post($url, (string) json_encode($body, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
-            }
-            $status = $curl->getStatus();
-            $answer = json_decode((string) $curl->getBody(), true);
+            ['status' => $status, 'body' => $answer] = $this->client->request(
+                $method,
+                $this->base($storeId) . $path,
+                $body,
+                ['X-API-Key' => $key],
+                $this->timeout
+            );
         } catch (\Throwable $e) {
             $this->logger->warning('Zero Adyen: ' . $path . ': ' . $e->getMessage());
             throw new LocalizedException(__('Adyen is not answering. Please try again in a minute.'), $e);
         }
-        if ($status < 200 || $status >= 300 || !is_array($answer)) {
+        if ($status < 200 || $status >= 300 || $answer === null) {
             $message = is_array($answer) ? (string) ($answer['message'] ?? '') : '';
             $this->logger->warning(sprintf('Zero Adyen: %s: HTTP %d %s', $path, $status, $message));
             throw new LocalizedException(__('Adyen refused the request: %1', $message !== '' ? $message : 'HTTP ' . $status));
