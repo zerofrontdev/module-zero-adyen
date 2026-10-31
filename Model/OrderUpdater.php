@@ -11,7 +11,10 @@ namespace Zero\Adyen\Model;
 use Magento\Framework\Exception\LocalizedException;
 use Magento\Sales\Api\OrderRepositoryInterface;
 use Magento\Sales\Model\Order;
+use Zero\Checkout\Model\Money\MinorUnits;
+use Zero\Checkout\Model\RedirectPayment\LatePaymentInterface;
 use Zero\Checkout\Model\RedirectPayment\OrderPayment;
+use Zero\Checkout\Model\RedirectPayment\OrderUpdaterInterface;
 use Zero\Checkout\Model\RedirectPayment\ReturnResult;
 use Zero\Checkout\Model\RedirectPayment\WebhookHandlerInterface;
 
@@ -23,8 +26,11 @@ use Zero\Checkout\Model\RedirectPayment\WebhookHandlerInterface;
  * - authorised(): the signed AUTHORISATION webhook, which also brings the
  *   payment's pspReference (refunds need it).
  * Whichever comes first marks the order paid; the other changes nothing.
+ * update() cancels only on an expired link, never on "active", so the
+ * recheck cron may ask it (RedirectPayment\Updaters). A cancelled order
+ * paid anyway is reported by latePayment(), read-only.
  */
-class OrderUpdater implements WebhookHandlerInterface
+class OrderUpdater implements WebhookHandlerInterface, OrderUpdaterInterface, LatePaymentInterface
 {
     public function __construct(
         private readonly Api $api,
@@ -34,10 +40,9 @@ class OrderUpdater implements WebhookHandlerInterface
     }
 
     /**
-     * @return string A ReturnResult state
-     * @throws LocalizedException When Adyen doesn't answer
+     * @inheritDoc
      */
-    public function update(Order $order): string
+    public function update(Order $order, array $params = []): string
     {
         $linkId = (string) $order->getPayment()?->getAdditionalInformation(Payment::LINK_ID);
         if ($order->getPayment()?->getMethod() !== Payment::CODE || $linkId === '') {
@@ -63,7 +68,7 @@ class OrderUpdater implements WebhookHandlerInterface
      */
     public function authorised(Order $order, array $item): void
     {
-        $pspReference = (string) ($item['pspReference'] ?? '');
+        $pspReference = is_scalar($item['pspReference'] ?? null) ? (string) $item['pspReference'] : '';
         $order->getPayment()->setAdditionalInformation(Payment::PSP_REFERENCE, $pspReference);
         if ($this->orderPayment->settled($order) === null) {
             $this->paid($order, (array) ($item['amount'] ?? []), $pspReference);
@@ -83,6 +88,47 @@ class OrderUpdater implements WebhookHandlerInterface
         if (($data['eventCode'] ?? '') === 'AUTHORISATION' && ($data['success'] ?? '') === 'true') {
             $this->authorised($order, $data);
         }
+    }
+
+    /**
+     * A cancelled order's payment link, asked from Adyen: completed (paid)
+     * or not. Nothing on the order is changed. Webhooks::settle asks this
+     * instead of running webhook() for a cancelled order, so a late
+     * AUTHORISATION is flagged, never booked. While the link of a cancelled
+     * order is paymentPending (an asynchronous payment in flight), the event
+     * is not acknowledged (LocalizedException, the controller answers 503) so
+     * that Adyen sends it again; an active link means nobody paid: null.
+     *
+     * @inheritDoc
+     * @throws LocalizedException When Adyen doesn't answer, or the cancelled order's link is paymentPending
+     */
+    public function latePayment(Order $order): ?array
+    {
+        $linkId = (string) $order->getPayment()?->getAdditionalInformation(Payment::LINK_ID);
+        if ($order->getPayment()?->getMethod() !== Payment::CODE || $linkId === '') {
+            return null;
+        }
+        $link = $this->api->send('GET', '/paymentLinks/' . rawurlencode($linkId), null, (int) $order->getStoreId());
+        $status = (string) ($link['status'] ?? '');
+        if ($order->getState() === Order::STATE_CANCELED && $status === 'paymentPending') {
+            throw new LocalizedException(
+                __('Adyen has not settled the payment link of cancelled order #%1 yet.', $order->getIncrementId())
+            );
+        }
+        if ($status !== 'completed') {
+            return null;
+        }
+        $currency = (string) ($link['amount']['currency'] ?? '');
+
+        return [
+            'id' => (string) ($order->getPayment()->getAdditionalInformation(Payment::PSP_REFERENCE) ?: $linkId),
+            'amount' => MinorUnits::format(
+                MinorUnits::fromMinor((int) ($link['amount']['value'] ?? 0), $currency, MinorUnits::ADYEN),
+                $currency,
+                MinorUnits::ADYEN
+            ),
+            'currency' => $currency,
+        ];
     }
 
     /**

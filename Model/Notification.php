@@ -18,7 +18,8 @@ class Notification
 {
     public static function isValid(array $item, string $hexKey): bool
     {
-        $signature = (string) ($item['additionalData']['hmacSignature'] ?? '');
+        $additional = is_array($item['additionalData'] ?? null) ? $item['additionalData'] : [];
+        $signature = is_scalar($additional['hmacSignature'] ?? null) ? (string) $additional['hmacSignature'] : '';
         if ($signature === '' || $hexKey === '' || !ctype_xdigit($hexKey)) {
             return false;
         }
@@ -28,16 +29,18 @@ class Notification
 
     public static function sign(array $item, string $hexKey): string
     {
-        $payload = implode(':', [
+        $amount = is_array($item['amount'] ?? null) ? $item['amount'] : [];
+        // A field sent as an array signs as '' (so the signature can't match), never a 500.
+        $payload = implode(':', array_map(static fn ($value) => is_array($value) ? '' : $value, [
             $item['pspReference'] ?? '',
             $item['originalReference'] ?? '',
             $item['merchantAccountCode'] ?? '',
             $item['merchantReference'] ?? '',
-            $item['amount']['value'] ?? '',
-            $item['amount']['currency'] ?? '',
+            $amount['value'] ?? '',
+            $amount['currency'] ?? '',
             $item['eventCode'] ?? '',
             $item['success'] ?? '',
-        ]);
+        ]));
 
         return base64_encode(hash_hmac('sha256', $payload, (string) hex2bin($hexKey), true));
     }

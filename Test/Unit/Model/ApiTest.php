@@ -11,6 +11,7 @@ namespace Zero\Adyen\Test\Unit\Model;
 use Magento\Framework\App\Config\ScopeConfigInterface;
 use Magento\Framework\Encryption\EncryptorInterface;
 use Magento\Framework\Exception\LocalizedException;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\MockObject\MockObject;
 use PHPUnit\Framework\TestCase;
 use Psr\Log\LoggerInterface;
@@ -89,5 +90,34 @@ class ApiTest extends TestCase
         $this->expectException(LocalizedException::class);
         $this->expectExceptionMessage('is not answering');
         $this->api()->send('POST', '/paymentLinks', ['a' => 1], 1);
+    }
+
+    /**
+     * Adyen's own exponents (A3-19): CLP and ISK in hundredths, IDR, CVE and
+     * UGX whole, KWD in thousandths.
+     */
+    #[DataProvider('exponents')]
+    public function testAmountExponents(float $amount, string $currency, int $minor): void
+    {
+        $this->assertSame(['value' => $minor, 'currency' => $currency], Api::amount($amount, $currency));
+    }
+
+    /** @return array<string, array{float, string, int}> */
+    public static function exponents(): array
+    {
+        return [
+            'CLP' => [1000.0, 'CLP', 100000],
+            'ISK' => [5.0, 'ISK', 500],
+            'IDR' => [15000.0, 'IDR', 15000],
+            'CVE' => [100.0, 'CVE', 100],
+            'UGX' => [3000.0, 'UGX', 3000],
+            'JPY' => [1000.0, 'JPY', 1000],
+            'KRW' => [5000.0, 'KRW', 5000],
+            'KWD' => [1.0, 'KWD', 1000],
+            'BHD' => [1.234, 'BHD', 1234],
+            'EUR' => [10.99, 'EUR', 1099],
+            'EUR half cent' => [0.285, 'EUR', 29],
+            'SEK' => [99.5, 'SEK', 9950],
+        ];
     }
 }

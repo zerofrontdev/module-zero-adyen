@@ -13,6 +13,7 @@ use Magento\Framework\Encryption\EncryptorInterface;
 use Magento\Framework\Exception\LocalizedException;
 use Magento\Store\Model\ScopeInterface;
 use Psr\Log\LoggerInterface;
+use Zero\Checkout\Model\Money\MinorUnits;
 use Zero\Core\Model\Http\JsonClient;
 
 /**
@@ -24,10 +25,6 @@ class Api
 {
     private const TEST = 'https://checkout-test.adyen.com/v71';
     private const LIVE = 'https://%s-checkout-live.adyenpayments.com/checkout/v71';
-
-    /** Currencies whose minor unit isn't a hundredth. */
-    private const EXPONENTS = ['JPY' => 0, 'KRW' => 0, 'ISK' => 0, 'CLP' => 0, 'VND' => 0,
-        'BHD' => 3, 'JOD' => 3, 'KWD' => 3, 'OMR' => 3, 'TND' => 3];
 
     public function __construct(
         private readonly JsonClient $client,
@@ -87,13 +84,15 @@ class Api
     }
 
     /**
-     * An amount as Adyen takes it.
+     * An amount as Adyen takes it, in minor units of Adyen's own currency
+     * table (docs.adyen.com/development-resources/currency-codes): CLP and
+     * ISK have two decimals there, IDR and CVE none.
      *
      * @return array{value: int, currency: string}
      */
     public static function amount(float $amount, string $currency): array
     {
-        return ['value' => (int) round($amount * 10 ** (self::EXPONENTS[$currency] ?? 2)), 'currency' => $currency];
+        return ['value' => MinorUnits::toMinor($amount, $currency, MinorUnits::ADYEN), 'currency' => $currency];
     }
 
     private function base(?int $storeId): string

@@ -52,7 +52,8 @@ class Webhook implements HttpPostActionInterface, CsrfAwareActionInterface
         $body = json_decode((string) $request->getContent(), true);
         foreach ((array) ($body['notificationItems'] ?? []) as $wrapper) {
             $item = (array) ($wrapper['NotificationRequestItem'] ?? []);
-            $reference = (string) ($item['merchantReference'] ?? '');
+            // An array ("merchantReference":[…]) counts as missing: not ours, never a 500.
+            $reference = is_scalar($item['merchantReference'] ?? null) ? (string) $item['merchantReference'] : '';
             $order = $reference === '' ? null : $this->orderFactory->create()->loadByIncrementId($reference);
             if (!$order || !$order->getId() || $order->getPayment()?->getMethod() !== Payment::CODE) {
                 continue;

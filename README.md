@@ -43,6 +43,18 @@ The account should **capture automatically** (Adyen's default): an
 authorised payment counts as paid. **Refunds:** credit memos refund online
 by the pspReference the webhook brought.
 
+**Settlement** (Zero Checkout's redirect-payment flow): the return page, the
+webhook and the recheck cron update the order under its lock, on a freshly
+read order; while another process holds it the customer sees "processing". A
+payment Adyen reports for an order already cancelled is not booked: the order
+stays cancelled, with a comment and an admin notice (refund it at Adyen).
+While a cancelled order's link is `paymentPending` (an asynchronous payment
+in flight), its webhook events get a 503, so Adyen sends them again until the
+link settles; an `active` link means nobody paid, and the event is accepted. The
+updater is registered for Zero Checkout > Payment Webhooks > Recheck Pending
+Payments (off by default), since it cancels only on an `expired` link, never
+because nobody has paid yet.
+
 ## Settings
 
 Stores > Configuration > Sales > Payment Methods > **Adyen (Zero)**:
@@ -55,6 +67,8 @@ sort order.
 
 `Test/Unit/Model/NotificationTest.php`: the webhook's HMAC signature, minor
 units.
+
+What changed in each release: [CHANGELOG.md](CHANGELOG.md).
 
 ## License
 

@@ -12,4 +12,16 @@
             </argument>
         </arguments>
     </type>
+    <!--
+        Asked by the recheck cron (Zero Checkout > Payment Webhooks > Recheck Pending
+        Payments) about orders still pending payment: update() cancels only on the
+        provider's definitive failure, never because nobody has paid yet.
+    -->
+    <type name="Zero\Checkout\Model\RedirectPayment\Updaters">
+        <arguments>
+            <argument name="updaters" xsi:type="array">
+                <item name="zero_adyen" xsi:type="object">Zero\Adyen\Model\OrderUpdater</item>
+            </argument>
+        </arguments>
+    </type>
 </config>
